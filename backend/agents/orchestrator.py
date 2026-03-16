@@ -21,7 +21,8 @@ from backend.models.schemas import (
     ScanRequest, ScanResponse, ExtractedContent, SourceType,
     ThreatDetection
 )
-from backend.models.risk_calculator import calculate_risk_score
+from backend.models.risk_calculator import calculate_risk_score, _score_to_severity
+from backend.config import get_settings
 
 
 class OrchestratorAgent:
@@ -67,6 +68,48 @@ class OrchestratorAgent:
         explanation = await self.explainer.explain(
             validated, risk_score, context, extracted.plain_text
         )
+
+        settings = get_settings()
+
+        # OVERRIDE SCORING WITH LLM Output (if available)
+        if explanation.llm_risk_score is not None:
+            new_overall = explanation.llm_risk_score
+            risk_score.overall_score = round(new_overall, 2)
+            risk_score.severity = _score_to_severity(new_overall)
+
+        if explanation.llm_threat_scores:
+            threat_scores = explanation.llm_threat_scores
+            max_conf = risk_score.confidence
+            
+            for det in validated:
+                threat_key = det.threat_type.value
+                if threat_key in threat_scores:
+                    new_conf = threat_scores[threat_key]
+                    det.confidence = round(new_conf, 4)
+                    
+                    # Update detected boolean based on new confidence
+                    threshold_map = {
+                        "phishing": settings.phishing_threshold,
+                        "malicious_url": settings.url_threat_threshold,
+                        "deepfake": settings.deepfake_threshold,
+                        "prompt_injection": settings.prompt_injection_threshold,
+                        "anomaly": settings.anomaly_threshold,
+                        "ai_generated": settings.deepfake_threshold
+                    }
+                    threshold = threshold_map.get(threat_key, 0.5)
+                    det.detected = new_conf >= threshold
+                    
+                    # Update severity
+                    det.severity = _score_to_severity(new_conf * 100)
+                    
+                    max_conf = max(max_conf, new_conf)
+                    
+                    # Update breakdown risk score
+                    for breakdown in risk_score.breakdown:
+                        if breakdown.threat_type == det.threat_type:
+                            breakdown.score = new_conf * 100
+
+            risk_score.confidence = round(max_conf, 3)
 
         # Step 6: Visual Breadcrumbs
         breadcrumbs = self.breadcrumb_generator.generate(

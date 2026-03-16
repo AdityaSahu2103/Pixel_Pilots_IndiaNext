@@ -89,8 +89,13 @@ class PhishingDetectorAgent:
             scores["link_mismatch"] = mismatch_score
             evidence.extend(mismatch_evidence)
 
+        # 4b. Explicit Domain Spoofing Check on URLs
+        spoof_score, spoof_evidence = self._detect_url_spoofing(extracted.urls)
+        scores["url_spoofing"] = spoof_score
+        evidence.extend(spoof_evidence)
+
         # 5. Sender reputation
-        if extracted.sender:
+        if getattr(extracted, "sender", None):
             sender_score, sender_evidence = self._check_sender(extracted.sender)
             scores["sender_reputation"] = sender_score
             evidence.extend(sender_evidence)
@@ -275,6 +280,42 @@ class PhishingDetectorAgent:
         score = min(mismatches * 0.3, 0.9) if mismatches > 0 else 0.0
         return score, evidence
 
+    def _detect_url_spoofing(self, urls: list[str]) -> tuple[float, list[EvidenceItem]]:
+        """Check URLs for typosquatting or brand impersonation."""
+        from urllib.parse import urlparse
+        evidence = []
+        score = 0.0
+
+        for url in urls:
+            try:
+                domain = urlparse(url).netloc.lower()
+                if not domain:
+                    continue
+                
+                # Check for lookalike domains
+                for legit_domain in self.LEGITIMATE_DOMAINS:
+                    base = legit_domain.split(".")[0]
+                    # Direct lookalike: g00gle.com
+                    if re.search(base.replace('o', '[o0]').replace('i', '[il1]'), domain) and legit_domain not in domain:
+                        score += 0.85
+                        evidence.append(EvidenceItem(
+                            indicator="Brand Impersonation URL",
+                            description=f"URL domain '{domain}' is attempting to spoof {legit_domain}",
+                            severity=BreadcrumbSeverity.RED
+                        ))
+                    # Subdomain spoofing: login.google.com.badsite.com or login-google.com
+                    elif base in domain and not domain.endswith(legit_domain):
+                        score += 0.75
+                        evidence.append(EvidenceItem(
+                            indicator="Brand Impersonation URL",
+                            description=f"URL '{domain}' contains '{base}' but is not the official domain",
+                            severity=BreadcrumbSeverity.RED
+                        ))
+            except Exception:
+                pass
+
+        return min(score, 1.0), evidence
+
     def _check_sender(self, sender: str) -> tuple[float, list[EvidenceItem]]:
         """Check sender address for suspicious patterns."""
         evidence = []
@@ -293,8 +334,8 @@ class PhishingDetectorAgent:
         # Check for lookalike domains
         for legit_domain in self.LEGITIMATE_DOMAINS:
             base = legit_domain.split(".")[0]
-            if base in sender.lower() and legit_domain not in sender.lower():
-                score += 0.35
+            if base in sender.lower() and legit_domain.lower() not in sender.lower():
+                score += 0.65
                 evidence.append(EvidenceItem(
                     indicator="Domain Spoofing Attempt",
                     description=f"Sender domain appears to impersonate {legit_domain}",

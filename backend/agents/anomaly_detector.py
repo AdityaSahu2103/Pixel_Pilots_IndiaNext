@@ -9,7 +9,7 @@ from sklearn.ensemble import IsolationForest
 from backend.config import get_settings
 from backend.models.schemas import (
     ThreatDetection, ThreatType, SeverityLevel, EvidenceItem,
-    BreadcrumbSeverity, ExtractedContent
+    BreadcrumbSeverity, ExtractedContent, SourceType
 )
 
 
@@ -37,14 +37,43 @@ class AnomalyDetectorAgent:
         rng = np.random.RandomState(42)
         # Features: [text_length, url_count, special_char_ratio,
         #            caps_ratio, entropy, avg_word_length]
-        normal_data = np.column_stack([
-            rng.normal(500, 200, 200),    # text_length
-            rng.poisson(2, 200),           # url_count
-            rng.normal(0.05, 0.02, 200),   # special_char_ratio
-            rng.normal(0.05, 0.03, 200),   # caps_ratio
-            rng.normal(4.0, 0.5, 200),     # entropy
-            rng.normal(5.0, 1.0, 200),     # avg_word_length
+        
+        n_samples = 300
+        
+        # 1. Normal Text (60% of data)
+        normal_text = np.column_stack([
+            rng.normal(500, 200, int(n_samples * 0.6)),    # text_length
+            rng.poisson(2, int(n_samples * 0.6)),           # url_count
+            rng.normal(0.05, 0.02, int(n_samples * 0.6)),   # special_char_ratio
+            rng.normal(0.05, 0.03, int(n_samples * 0.6)),   # caps_ratio
+            rng.normal(4.0, 0.5, int(n_samples * 0.6)),     # entropy
+            rng.normal(5.0, 1.0, int(n_samples * 0.6)),     # avg_word_length
         ])
+        
+        # 2. URLs (20% of data - typical web domains and paths)
+        urls = np.column_stack([
+            rng.normal(35, 15, int(n_samples * 0.2)),       # text_length
+            rng.poisson(1, int(n_samples * 0.2)),           # url_count (usually 1)
+            rng.normal(0.15, 0.05, int(n_samples * 0.2)),   # special_char_ratio
+            rng.normal(0.0, 0.02, int(n_samples * 0.2)),    # caps_ratio (mostly lowercase)
+            rng.normal(3.5, 0.5, int(n_samples * 0.2)),     # entropy
+            rng.normal(15.0, 5.0, int(n_samples * 0.2)),    # avg_word_length
+        ])
+        
+        # 3. Short Messages (20% of data)
+        short_msgs = np.column_stack([
+            rng.normal(50, 20, int(n_samples * 0.2)),       # text_length
+            rng.poisson(0, int(n_samples * 0.2)),           # url_count
+            rng.normal(0.05, 0.03, int(n_samples * 0.2)),   # special_char_ratio
+            rng.normal(0.10, 0.05, int(n_samples * 0.2)),   # caps_ratio
+            rng.normal(3.8, 0.5, int(n_samples * 0.2)),     # entropy
+            rng.normal(4.5, 1.0, int(n_samples * 0.2)),     # avg_word_length
+        ])
+        
+        normal_data = np.vstack([normal_text, urls, short_msgs])
+        # Force non-negative where impossible
+        normal_data = np.clip(normal_data, a_min=0, a_max=None)
+        
         self.model.fit(normal_data)
         self._is_fitted = True
 
@@ -65,40 +94,57 @@ class AnomalyDetectorAgent:
             "avg_word_length": round(features[5], 4),
         }
 
+        is_url_scan = getattr(extracted, "source_type", None) == SourceType.URL
+        
         # Run IsolationForest
         feature_array = np.array([features])
         anomaly_score = -self.model.score_samples(feature_array)[0]
+        
         # Normalize to 0-1 range (typical scores are -0.5 to 0.5)
-        confidence = min(max((anomaly_score - 0.3) / 0.4, 0.0), 1.0)
+        # The higher the value, the more anomalous. Need to increase threshold slightly 
+        # to avoid false positives on simple URLs
+        if is_url_scan:
+            # Web pages have highly variable structure naturally
+            confidence = min(max((anomaly_score - 0.55) / 0.35, 0.0), 1.0)
+        else:
+            confidence = min(max((anomaly_score - 0.45) / 0.25, 0.0), 1.0)
+            
         scores["isolation_forest"] = round(float(anomaly_score), 4)
 
+        # Determine if it's primarily a URL/short text to adjust evidence thresholds
+        is_mostly_url = (features[0] < 120 and len(extracted.urls) >= 1 and features[5] > 8)
+        
         # Add evidence for anomalous features
-        if features[2] > 0.15:  # High special char ratio
+        high_special_char_threshold = 0.25 if (is_mostly_url or is_url_scan) else 0.15
+        if features[2] > high_special_char_threshold:
             evidence.append(EvidenceItem(
                 indicator="High Special Character Ratio",
-                description=f"Special character ratio: {features[2]:.1%} (normal: ~5%)",
+                description=f"Special character ratio: {features[2]:.1%} (normal: < {high_special_char_threshold:.0%})",
                 severity=BreadcrumbSeverity.ORANGE
             ))
 
-        if features[3] > 0.3:  # High caps ratio
+        high_caps_threshold = 0.5 if is_url_scan else 0.4
+        if features[3] > high_caps_threshold:  # High caps ratio
             evidence.append(EvidenceItem(
                 indicator="Excessive Capitalization",
-                description=f"Caps ratio: {features[3]:.1%} (normal: ~5%)",
+                description=f"Caps ratio: {features[3]:.1%} (normal: < {high_caps_threshold:.0%})",
                 severity=BreadcrumbSeverity.YELLOW
             ))
 
-        if features[1] > 5:  # Many URLs
+        actual_url_count = len(extracted.urls)
+        many_urls_threshold = 50 if is_url_scan else 5
+        if actual_url_count > many_urls_threshold:  # Many URLs
             evidence.append(EvidenceItem(
                 indicator="Unusual URL Count",
-                description=f"Contains {int(features[1])} URLs (normal: 1-2)",
+                description=f"Contains {actual_url_count} URLs (normal: < {many_urls_threshold})",
                 severity=BreadcrumbSeverity.ORANGE
             ))
 
-        if confidence > 0.5:
+        if confidence > 0.6:
             evidence.append(EvidenceItem(
                 indicator="Statistical Anomaly",
                 description=f"Content deviates significantly from normal patterns (anomaly score: {anomaly_score:.3f})",
-                severity=BreadcrumbSeverity.RED if confidence > 0.7 else BreadcrumbSeverity.ORANGE
+                severity=BreadcrumbSeverity.RED if confidence > 0.8 else BreadcrumbSeverity.ORANGE
             ))
 
         settings = get_settings()
@@ -119,7 +165,11 @@ class AnomalyDetectorAgent:
             return [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         text_length = float(len(text))
+        
         url_count = float(len(extracted.urls))
+        if getattr(extracted, "source_type", None) == SourceType.URL:
+            # Webpages naturally have many links; normalize it down so the ML model doesn't flag it as anomalous
+            url_count = min(url_count / 20.0, 2.0)
 
         # Special character ratio
         special = sum(1 for c in text if not c.isalnum() and not c.isspace())

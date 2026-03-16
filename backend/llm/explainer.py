@@ -50,6 +50,8 @@ class ExplainerAgent:
                 max_tokens=settings.groq_max_tokens
             )
 
+            print(f"RAW GROK: {response.choices[0].message.content}")
+
             return self._parse_response(
                 response.choices[0].message.content,
                 detections, risk_score
@@ -62,36 +64,47 @@ class ExplainerAgent:
 
     def _system_prompt(self) -> str:
         return (
-            "You are CyberShield AI's threat analyst. Given detection results from multiple "
-            "security agents, generate a clear, actionable threat report. Respond in JSON format:\n"
+            "You are CyberShield AI's Master Threat Analyst. Your job is to independently evaluate cybersecurity threats. "
+            "You will be given the 'Original Content' (a URL, email, or text) and some raw 'Evidence' extracted by simple scanners.\n\n"
+            "CRITICAL RULES FOR SCORING:\n"
+            "1. You MUST evaluate the 'Original Content' on your own. DO NOT blindly trust the 'Evidence'. "
+            "The simple scanners are notorious for False Positives. For example, they might flag a Safe URL (like https://www.amazon.com or https://www.google.com) as an 'Anomaly'. "
+            "If the Original Content is a safe, widely known domain, or a normal benign message, you MUST return a score of 0, completely ignoring the false-positive evidence.\n"
+            "2. Only give high 'phishing' or 'malicious_url' scores if the URL is clearly typosquatting (e.g. amazon-security-update.com) or the text is actually a social engineering attempt.\n\n"
+            "Respond strictly in this JSON format:\n"
             "{\n"
-            '  "summary": "2-3 sentence human-readable threat summary",\n'
-            '  "reasoning_chain": ["step 1...", "step 2...", ...],\n'
-            '  "evidence_citations": ["evidence 1...", ...],\n'
-            '  "confidence_justification": "why we are this confident",\n'
-            '  "recommended_actions": ["action 1...", "action 2...", ...]\n'
+            '  "summary": "2-3 sentence human-readable threat summary. State clearly if this is safe or a threat.",\n'
+            '  "reasoning_chain": ["step 1...", "step 2..."],\n'
+            '  "evidence_citations": ["relevant evidence..."],\n'
+            '  "confidence_justification": "Why we are this confident",\n'
+            '  "recommended_actions": ["action 1...", "action 2..."],\n'
+            '  "llm_risk_score": 0,\n'
+            '  "llm_threat_scores": {"phishing": 0.0, "malicious_url": 0.0, "deepfake": 0.0, "prompt_injection": 0.0, "anomaly": 0.0, "ai_generated": 0.0}\n'
             "}\n"
-            "Be specific, cite actual evidence from the detections, and give practical recommendations."
+            "Provide the final, definitive exact scoring. 'llm_risk_score' must be an integer from 0-100 representing the overall risk. 'llm_threat_scores' must be float 0.0-1.0."
         )
 
     def _build_prompt(
         self, detections: list[ThreatDetection], risk_score: RiskScore,
         context: str, original_content: str
     ) -> str:
-        parts = [f"## Risk Score: {risk_score.overall_score}/100 ({risk_score.severity.value})"]
-
-        parts.append("\n## Detection Results:")
+        parts = ["## Raw Evidence Collected by Agents (WARNING: May contain false positives - evaluate independently):"]
+        
         for d in detections:
-            status = "DETECTED" if d.detected else "Clear"
-            parts.append(f"\n### {d.threat_type.value} [{status}] (confidence: {d.confidence:.0%})")
-            for ev in d.evidence:
-                parts.append(f"  - {ev.indicator}: {ev.description}")
+            if d.evidence:
+                parts.append(f"\n### Threat Category: {d.threat_type.value}")
+                # Limit to 5 evidence items to prevent LLM token rate limits (429 errors)
+                limited_evidence = d.evidence[:5]
+                for ev in limited_evidence:
+                    parts.append(f"  - {ev.indicator}: {ev.description}")
+                if len(d.evidence) > 5:
+                    parts.append(f"  - ... and {len(d.evidence) - 5} more items.")
 
         if context:
             parts.append(f"\n## Threat Intelligence Context:\n{context}")
 
         if original_content:
-            parts.append(f"\n## Original Content (first 500 chars):\n{original_content[:500]}")
+            parts.append(f"\n## Original Content (Evaluate this directly!):\n{original_content[:2000]}")
 
         return "\n".join(parts)
 
@@ -107,15 +120,36 @@ class ExplainerAgent:
                 text = m.group(1).strip() if m else text
 
             data = json.loads(text)
+            
+            # Ensure float parsing for threat scores
+            threat_scores = {}
+            if "llm_threat_scores" in data and isinstance(data["llm_threat_scores"], dict):
+                for k, v in data["llm_threat_scores"].items():
+                    try:
+                        threat_scores[k] = float(v)
+                    except (ValueError, TypeError):
+                        pass
+
+            risk_score_val = None
+            if "llm_risk_score" in data:
+                try:
+                    risk_score_val = float(data["llm_risk_score"])
+                except (ValueError, TypeError):
+                    pass
+
             return ExplainerResult(
                 summary=data.get("summary", "Threat analysis complete."),
                 reasoning_chain=data.get("reasoning_chain", []),
                 evidence_citations=data.get("evidence_citations", []),
                 confidence_justification=data.get("confidence_justification", ""),
                 recommended_actions=data.get("recommended_actions", []),
+                llm_risk_score=risk_score_val,
+                llm_threat_scores=threat_scores if threat_scores else None
             )
-        except (json.JSONDecodeError, Exception):
-            return self._fallback_explanation(detections, risk_score)
+        except (json.JSONDecodeError, Exception) as e:
+            fallback = self._fallback_explanation(detections, risk_score)
+            fallback.confidence_justification += f" (LLM Parse Error: {str(e)[:50]})"
+            return fallback
 
     def _fallback_explanation(
         self, detections: list[ThreatDetection], risk_score: RiskScore

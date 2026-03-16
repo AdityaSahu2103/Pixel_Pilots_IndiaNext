@@ -34,8 +34,11 @@ class URLScannerAgent:
         "excessive_subdomains": re.compile(r'https?://([^/]+\.){4,}'),
         "homograph_chars": re.compile(r'[а-яА-Яα-ωΑ-Ω]'),  # Cyrillic/Greek lookalikes
         "encoded_chars": re.compile(r'%[0-9a-fA-F]{2}.*%[0-9a-fA-F]{2}.*%[0-9a-fA-F]{2}'),
-        "suspicious_tld": re.compile(r'\.(tk|ml|ga|cf|gq|xyz|top|club|work|buzz)(/|$)'),
-        "login_keyword": re.compile(r'(login|signin|verify|secure|account|update|confirm)', re.I),
+        "suspicious_tld": re.compile(r'\.(tk|ml|ga|cf|gq|xyz|top|club|work|buzz)(/|$)', re.I),
+        "login_keyword": re.compile(r'(login|signin|verify|secure|account|update|confirm|auth|wallet)', re.I),
+        "typosquatting": re.compile(r'(g[o0]{2}gle|rnicros0ft|rnicrosoft|appIe|paypaI|faceb[o0]{2}k|netfIix)', re.I),
+        "brand_spoofing": re.compile(r'-(google|microsoft|apple|paypal|facebook|amazon|netflix|meta)\.', re.I),
+        "multiple_hyphens": re.compile(r'[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+-[a-zA-Z0-9]+\.'), # 3+ hyphens in domain
         "long_url": re.compile(r'.{200,}'),
         "at_symbol": re.compile(r'https?://[^/]*@'),
         "double_slash_redirect": re.compile(r'https?://[^/]+//'),
@@ -86,7 +89,8 @@ class URLScannerAgent:
             evidence.extend(redirect_evidence)
 
         # Composite confidence
-        confidence = max(vt_score * 0.6 + heuristic_score * 0.4, vt_score, heuristic_score * 0.8)
+        # Heuristics can be highly confident on their own for obvious spoofing URLs
+        confidence = max(vt_score * 0.7 + heuristic_score * 0.3, vt_score, heuristic_score * 0.95)
         confidence = min(confidence, 1.0)
 
         settings = get_settings()
@@ -146,14 +150,28 @@ class URLScannerAgent:
 
                 if response.status_code == 200:
                     data = response.json()
-                    stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+                    attributes = data.get("data", {}).get("attributes", {})
+                    
+                    # `/analyses` endpoint uses "stats", `/urls` endpoint uses "last_analysis_stats"
+                    stats = attributes.get("stats") or attributes.get("last_analysis_stats", {})
 
                     malicious = stats.get("malicious", 0)
                     suspicious = stats.get("suspicious", 0)
                     total = sum(stats.values()) if stats else 1
 
                     threat_count = malicious + suspicious
-                    score = min(threat_count / max(total * 0.3, 1), 1.0)
+                    
+                    # Realistic threat scoring based on engine convictions
+                    if threat_count == 0:
+                        score = 0.0
+                    elif threat_count == 1:
+                        score = 0.40  # Low confidence, might be false positive
+                    elif threat_count == 2:
+                        score = 0.65  # Medium-high confidence
+                    elif threat_count == 3:
+                        score = 0.85  # High confidence
+                    else:
+                        score = 1.0   # Critical confidence (4+ engines)
 
                     evidence = []
                     if threat_count > 0:
@@ -178,17 +196,28 @@ class URLScannerAgent:
             if pattern.search(url):
                 label = name.replace("_", " ").title()
                 severity_map = {
-                    "ip_address_url": (0.3, BreadcrumbSeverity.ORANGE),
-                    "homograph_chars": (0.4, BreadcrumbSeverity.RED),
-                    "at_symbol": (0.35, BreadcrumbSeverity.RED),
-                    "suspicious_tld": (0.25, BreadcrumbSeverity.ORANGE),
+                    "typosquatting": (0.85, BreadcrumbSeverity.RED),
+                    "brand_spoofing": (0.8, BreadcrumbSeverity.RED),
+                    "ip_address_url": (0.6, BreadcrumbSeverity.ORANGE),
+                    "homograph_chars": (0.6, BreadcrumbSeverity.RED),
+                    "multiple_hyphens": (0.45, BreadcrumbSeverity.ORANGE),
+                    "at_symbol": (0.6, BreadcrumbSeverity.RED),
+                    "suspicious_tld": (0.5, BreadcrumbSeverity.ORANGE),
+                    "login_keyword": (0.35, BreadcrumbSeverity.YELLOW),
                     "encoded_chars": (0.2, BreadcrumbSeverity.YELLOW),
-                    "login_keyword": (0.15, BreadcrumbSeverity.YELLOW),
-                    "excessive_subdomains": (0.2, BreadcrumbSeverity.ORANGE),
+                    "excessive_subdomains": (0.4, BreadcrumbSeverity.ORANGE),
                     "long_url": (0.15, BreadcrumbSeverity.YELLOW),
-                    "double_slash_redirect": (0.2, BreadcrumbSeverity.ORANGE),
+                    "double_slash_redirect": (0.4, BreadcrumbSeverity.ORANGE),
                 }
                 s, sev = severity_map.get(name, (0.1, BreadcrumbSeverity.YELLOW))
+                
+                # Boost score if login keyword is combined with multiple hyphens or suspicious TLD
+                if name == "login_keyword":
+                    if self.SUSPICIOUS_PATTERNS["multiple_hyphens"].search(url) or \
+                       self.SUSPICIOUS_PATTERNS["suspicious_tld"].search(url):
+                        s += 0.3
+                        sev = BreadcrumbSeverity.RED
+                
                 score += s
                 evidence.append(EvidenceItem(
                     indicator=label,
@@ -196,7 +225,7 @@ class URLScannerAgent:
                     severity=sev
                 ))
 
-        return min(score, 0.9), evidence
+        return min(score, 1.0), evidence
 
     async def _check_redirects(self, url: str) -> tuple[float, list[EvidenceItem]]:
         """Check redirect chains for suspicious behavior."""

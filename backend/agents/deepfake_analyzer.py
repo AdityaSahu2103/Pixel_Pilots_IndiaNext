@@ -194,14 +194,14 @@ class DeepfakeAnalyzerAgent:
         found = [ind for ind in ai_indicators if ind in text_lower]
 
         if len(found) >= 3:
-            score = 0.5
+            score = 0.75
             evidence.append(EvidenceItem(
                 indicator="AI-Generated Text Patterns",
                 description=f"Text contains {len(found)} AI-typical phrases: {', '.join(found[:3])}",
-                severity=BreadcrumbSeverity.ORANGE
+                severity=BreadcrumbSeverity.RED
             ))
         elif len(found) >= 1:
-            score = 0.2
+            score = 0.45
             evidence.append(EvidenceItem(
                 indicator="Possible AI Text Patterns",
                 description=f"Text contains AI-typical phrase(s): {', '.join(found[:2])}",
