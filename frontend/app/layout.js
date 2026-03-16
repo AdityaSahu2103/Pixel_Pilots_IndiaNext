@@ -1,4 +1,5 @@
 import Chatbot from "../components/Chatbot";
+import { LanguageProvider } from "../context/LanguageContext";
 import "./globals.css";
 
 export const metadata = {
@@ -25,8 +26,10 @@ export default function RootLayout({ children }) {
         />
       </head>
       <body className="antialiased">
-        {children}
-        <Chatbot />
+        <LanguageProvider>
+          {children}
+          <Chatbot />
+        </LanguageProvider>
       </body>
     </html>
   );

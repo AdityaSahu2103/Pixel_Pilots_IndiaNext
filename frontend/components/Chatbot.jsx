@@ -2,19 +2,27 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { getRuleBasedResponse } from "../utils/chatbotRules";
+import { useTranslate } from "../hooks/useTranslate";
 
 const Chatbot = () => {
+  const { t, language } = useTranslate();
   const [isOpen, setIsOpen] = useState(false);
-  const [messages, setMessages] = useState([
-    {
-      role: "bot",
-      content:
-        "Secure connection established. I am your cybersecurity assistant. How can I help you today?",
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+
+  // Set initial greeting based on language
+  useEffect(() => {
+    if (messages.length === 0) {
+      setMessages([
+        {
+          role: "bot",
+          content: t("chatbot.defaultGreeting"),
+        },
+      ]);
+    }
+  }, [t, messages.length]);
 
   // Auto-scroll to bottom of chat
   const scrollToBottom = () => {
@@ -35,7 +43,7 @@ const Chatbot = () => {
     setIsLoading(true);
 
     // 1. Check Rule-Based Responses
-    const ruleResponse = getRuleBasedResponse(userMessage);
+    const ruleResponse = getRuleBasedResponse(userMessage, language);
 
     if (ruleResponse) {
       setTimeout(() => {
@@ -53,6 +61,14 @@ const Chatbot = () => {
       // NOTE: In production, API calls should go through a secure backend route.
       const apiKey = process.env.NEXT_PUBLIC_GROQ_API_KEY;
 
+      const languageMapping = {
+        en: "English",
+        hi: "Hindi",
+        mr: "Marathi",
+      };
+
+      const aiLanguage = languageMapping[language] || "English";
+
       const response = await fetch(
         "https://api.groq.com/openai/v1/chat/completions",
         {
@@ -66,8 +82,7 @@ const Chatbot = () => {
             messages: [
               {
                 role: "system",
-                content:
-                  "You are a cybersecurity assistant helping users understand online threats.",
+                content: `You are a cybersecurity assistant helping users understand online threats. Always respond in ${aiLanguage}.`,
               },
               { role: "user", content: userMessage },
             ],
@@ -91,7 +106,7 @@ const Chatbot = () => {
           ...prev,
           {
             role: "bot",
-            content: "Error: Unexpected response format from neural network.",
+            content: t("chatbot.formatError"),
           },
         ]);
       }
@@ -101,8 +116,7 @@ const Chatbot = () => {
         ...prev,
         {
           role: "bot",
-          content:
-            "System Notice: Unable to reach external AI servers. Please verify your connection or API key.",
+          content: t("chatbot.networkError"),
         },
       ]);
     } finally {
@@ -151,11 +165,11 @@ const Chatbot = () => {
             </div>
             <div>
               <h3 className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-blue-500 font-extrabold tracking-wide text-lg">
-                Cyber AI
+                {t("chatbot.botName")}
               </h3>
               <p className="text-xs text-cyan-400/70 flex items-center gap-1.5 font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_5px_#34d399]"></span>
-                Bot active
+                {t("chatbot.botActive")}
               </p>
             </div>
           </div>
@@ -163,7 +177,7 @@ const Chatbot = () => {
           <button
             onClick={() => setIsOpen(false)}
             className="relative w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white border border-transparent hover:border-white/10 transition-all focus:outline-none backdrop-blur-md"
-            aria-label="Close Chat"
+            aria-label={t("chatbot.close")}
           >
             <svg
               className="w-4 h-4"
@@ -252,14 +266,14 @@ const Chatbot = () => {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyPress}
-              placeholder="Ask about threats, IPs, hashes..."
+              placeholder={t("chatbot.placeholder")}
               className="flex-1 bg-transparent text-gray-100 px-5 py-3.5 text-sm outline-none placeholder-gray-500/80 font-medium w-full"
             />
             <button
               onClick={handleSend}
               disabled={isLoading || !input.trim()}
               className="absolute right-2 p-2 rounded-full bg-gradient-to-r from-cyan-600 to-blue-600 text-white hover:from-cyan-500 hover:to-blue-500 transition-all disabled:opacity-0 disabled:scale-75 disabled:pointer-events-none transform scale-100 flex items-center justify-center shadow-[0_0_10px_rgba(6,182,212,0.4)]"
-              aria-label="Send"
+              aria-label={t("chatbot.send")}
             >
               <svg
                 className="w-4 h-4 ml-0.5"
@@ -278,7 +292,7 @@ const Chatbot = () => {
           </div>
           <div className="text-center mt-2">
             <span className="text-[10px] text-gray-500 uppercase tracking-widest font-semibold font-mono">
-              Protected by CyberShield AI
+              {t("chatbot.protectedBy")}
             </span>
           </div>
         </div>
@@ -292,7 +306,7 @@ const Chatbot = () => {
         <button
           onClick={() => setIsOpen(true)}
           className="relative flex items-center justify-center w-16 h-16 bg-gradient-to-tr from-[#0f172a] to-[#1e293b] border-2 border-cyan-500/50 text-cyan-400 rounded-full shadow-[0_0_25px_rgba(6,182,212,0.3)] group focus:outline-none transition-all duration-300"
-          aria-label="Open Chat Assistant"
+          aria-label={t("chatbot.open")}
         >
           <div className="absolute inset-0 rounded-full group-hover:bg-cyan-500/10 transition-colors"></div>
           <svg
