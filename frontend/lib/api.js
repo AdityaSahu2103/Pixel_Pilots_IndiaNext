@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || '',
-  timeout: 30000,
+  timeout: 120000, // 2 minutes to allow 7-agent sequential AI processing
   headers: {
     'Content-Type': 'application/json',
   },
@@ -35,6 +35,16 @@ export async function analyzeEmail(rawEmail, sender = null, subject = null) {
     raw_email: rawEmail,
     sender,
     subject,
+  });
+  return data;
+}
+
+export async function syncLiveEmail(emailAddress, appPassword, imapServer = 'imap.gmail.com', limit = 5) {
+  const { data } = await api.post('/api/live/sync/email', {
+    email_address: emailAddress,
+    app_password: appPassword,
+    imap_server: imapServer,
+    limit,
   });
   return data;
 }

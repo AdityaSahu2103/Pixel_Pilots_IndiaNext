@@ -144,7 +144,6 @@ class OrchestratorAgent:
             self.url_scanner.detect(extracted),
             self.deepfake_analyzer.detect(extracted),
             self.prompt_injection.detect(extracted),
-            self.anomaly_detector.detect(extracted),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

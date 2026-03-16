@@ -6,8 +6,13 @@ const nextConfig = {
       {
         source: '/api/:path*',
         destination: `${backendUrl}/api/:path*`,
+        // Disable proxy timeout natively to let python handle it
+        basePath: false,
       },
     ];
+  },
+  experimental: {
+    proxyTimeout: 120000,
   },
   transpilePackages: ['three'],
 };

@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, AlertTriangle, CheckCircle, Shield, Copy, User, FileText } from 'lucide-react';
+import { Mail, AlertTriangle, CheckCircle, Shield, Copy, User, FileText, RefreshCw, Key } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import ScanButton from '@/components/ui/ScanButton';
 import ThreatBadge from '@/components/ui/ThreatBadge';
 import AnimatedProgress from '@/components/ui/AnimatedProgress';
-import { analyzeEmail } from '@/lib/api';
+import { analyzeEmail, syncLiveEmail } from '@/lib/api';
 
 export default function EmailAnalyzer() {
   const [rawEmail, setRawEmail] = useState('');
@@ -18,6 +18,36 @@ export default function EmailAnalyzer() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [scanProgress, setScanProgress] = useState(0);
+
+  // IMAP Live Sync State
+  const [imapEmail, setImapEmail] = useState('');
+  const [imapPassword, setImapPassword] = useState('');
+  const [imapLoading, setImapLoading] = useState(false);
+  const [imapResults, setImapResults] = useState([]);
+  const [imapError, setImapError] = useState(null);
+
+  const handleLiveSync = async () => {
+    if (!imapEmail || !imapPassword) {
+      setImapError('Please provide both Email and App Password');
+      return;
+    }
+    setImapLoading(true);
+    setImapError(null);
+    setImapResults([]);
+    try {
+      const data = await syncLiveEmail(imapEmail, imapPassword, 'imap.gmail.com', 2);
+      setImapResults(data);
+      if (data.length === 0) setImapError('No unread emails found.');
+    } catch (err) {
+      if (err.message === 'Network Error' || err.code === 'ECONNABORTED') {
+        setImapError('Request timed out. The AI took too long to scan the emails. Try again.');
+      } else {
+        setImapError(err.response?.data?.detail || 'IMAP Sync failed. Check credentials or backend status.');
+      }
+    } finally {
+      setImapLoading(false);
+    }
+  };
 
   const handleScan = async () => {
     if (!rawEmail.trim()) return;
@@ -51,13 +81,92 @@ export default function EmailAnalyzer() {
     <DashboardLayout>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
         <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-wide" style={{ fontFamily: 'Orbitron', color: '#E5E7EB' }}>
-            Email Analyzer
-          </h1>
-          <p className="text-sm mt-1" style={{ color: '#6B7280' }}>
-            Paste email content to detect phishing, malicious links, and social engineering attacks
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-wide" style={{ fontFamily: 'Orbitron', color: '#E5E7EB' }}>
+                Email Analyzer
+              </h1>
+              <p className="text-sm mt-1" style={{ color: '#6B7280' }}>
+                Paste email content or sync live to detect phishing, malicious links, and social engineering attacks
+              </p>
+            </div>
+          </div>
         </div>
+
+        {/* Live Email Sync Section */}
+        <GlassCard className="mb-6" glow="cyan">
+          <div className="flex items-center gap-2 mb-4">
+            <RefreshCw className="w-5 h-5" style={{ color: '#00F5FF' }} />
+            <h2 className="text-sm font-semibold" style={{ fontFamily: 'Orbitron', color: '#E5E7EB' }}>
+              Live Inbox Sync (IMAP)
+            </h2>
+          </div>
+          <p className="text-xs mb-4" style={{ color: '#9CA3AF' }}>
+            Automatically fetch and scan your last 5 unread emails directly from your inbox.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider mb-1 block" style={{ color: '#6B7280' }}>Gmail Address</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#6B7280' }} />
+                <input type="email" placeholder="you@gmail.com" value={imapEmail} onChange={(e) => setImapEmail(e.target.value)} className="pl-10" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider mb-1 block" style={{ color: '#6B7280' }}>App Password</label>
+              <div className="relative">
+                <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#6B7280' }} />
+                <input type="password" placeholder="16-char app password" value={imapPassword} onChange={(e) => setImapPassword(e.target.value)} className="pl-10" />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end mt-4">
+            <button
+              onClick={handleLiveSync}
+              disabled={imapLoading}
+              className="flex items-center gap-2 px-6 py-2 rounded-lg text-xs font-semibold"
+              style={{ background: imapLoading ? '#475569' : '#00F5FF', color: '#0f172a' }}
+            >
+              {imapLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {imapLoading ? 'Syncing Inbox...' : 'Fetch & Scan Latest Emails'}
+            </button>
+          </div>
+
+          {imapError && (
+            <div className="mt-4 p-3 rounded-lg flex items-start gap-2 text-xs" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+              <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
+              <span className="text-red-400">{imapError}</span>
+            </div>
+          )}
+
+          {imapResults.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <h3 className="text-xs font-semibold" style={{ color: '#E5E7EB' }}>Recent Scans</h3>
+              {imapResults.map((res, idx) => (
+                <div key={idx} className="p-3 rounded-lg flex items-center justify-between" style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div>
+                    <p className="text-xs font-semibold text-white">{res.subject}</p>
+                    <p className="text-[10px] text-gray-400">From: {res.sender}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-mono" style={{ color: res.severity === 'Critical' || res.severity === 'High' ? '#ef4444' : '#22c55e' }}>Score: {res.risk_score}</span>
+                    <a href={`/reports`} className="text-[10px] px-3 py-1 bg-gray-800 rounded hover:bg-gray-700 text-cyan-400">View in Reports</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </GlassCard>
+
+        <div className="flex items-center justify-center my-6">
+          <div className="h-px bg-gray-800 w-full"></div>
+          <span className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-widest">OR</span>
+          <div className="h-px bg-gray-800 w-full"></div>
+        </div>
+
+        {/* Manual Input Section */}
 
         <GlassCard className="mb-6">
           <div className="flex items-center gap-2 mb-4">

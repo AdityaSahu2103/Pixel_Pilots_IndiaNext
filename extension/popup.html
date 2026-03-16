@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>CyberShield AI</title>
+  <style>
+    body {
+      width: 320px;
+      font-family: 'Inter', -apple-system, sans-serif;
+      padding: 16px;
+      background: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+    }
+    h2 {
+      margin-top: 0;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo { color: #3b82f6; }
+    p { font-size: 13px; color: #94a3b8; line-height: 1.4; }
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 12px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #475569; cursor: not-allowed; }
+    
+    #result {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 6px;
+      display: none;
+      font-size: 13px;
+    }
+    .safe { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); }
+    .warning { background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); }
+    .danger { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
+    
+    .score { font-size: 24px; font-weight: 700; margin: 8px 0; }
+    .threat-tag { 
+      display: inline-block; 
+      padding: 2px 6px; 
+      border-radius: 4px; 
+      background: rgba(239,68,68,0.2); 
+      margin: 2px;
+      font-size: 11px;
+    }
+    .text-red { color: #ef4444; }
+    .text-yellow { color: #f59e0b; }
+    .text-green { color: #22c55e; }
+    
+    .loader {
+      display: none;
+      border: 3px solid #1e293b;
+      border-top: 3px solid #3b82f6;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+      margin: 10px auto;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <h2><span class="logo">🛡️</span> CyberShield AI</h2>
+  <p>Scan the current page or email for phishing, malicious URLs, and prompt injection.</p>
+  
+  <button id="scanBtn">Scan Current Page</button>
+  <div class="loader" id="loader"></div>
+  
+  <div id="result">
+    <div id="severityText"></div>
+    <div class="score" id="riskScore"></div>
+    <div id="threatList"></div>
+    <p id="summary" style="margin-top:10px; color:#cbd5e1;"></p>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
