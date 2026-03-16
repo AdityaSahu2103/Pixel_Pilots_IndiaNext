@@ -39,6 +39,22 @@ export async function analyzeEmail(rawEmail, sender = null, subject = null) {
   return data;
 }
 
+export async function analyzeFile(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  // Point directly to backend to bypass Next.js 10MB rewrite limits for large videos
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  const { data } = await axios.post(`${backendUrl}/api/analyze/file`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+    timeout: 300000, // 5 minutes for deepfake video scans
+  });
+  return data;
+}
+
 export async function syncLiveEmail(emailAddress, appPassword, imapServer = 'imap.gmail.com', limit = 5) {
   const { data } = await api.post('/api/live/sync/email', {
     email_address: emailAddress,

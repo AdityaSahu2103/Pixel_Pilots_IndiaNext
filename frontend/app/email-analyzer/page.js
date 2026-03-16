@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mail, AlertTriangle, CheckCircle, Shield, Copy, User, FileText, RefreshCw, Key } from 'lucide-react';
+import { Mail, AlertTriangle, CheckCircle, Shield, Copy, User, FileText, RefreshCw, Key, Image as ImageIcon, UploadCloud } from 'lucide-react';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import GlassCard from '@/components/ui/GlassCard';
 import ScanButton from '@/components/ui/ScanButton';
 import ThreatBadge from '@/components/ui/ThreatBadge';
 import AnimatedProgress from '@/components/ui/AnimatedProgress';
-import { analyzeEmail, syncLiveEmail } from '@/lib/api';
+import { analyzeEmail, syncLiveEmail, analyzeFile } from '@/lib/api';
 
 export default function EmailAnalyzer() {
   const [rawEmail, setRawEmail] = useState('');
@@ -25,6 +25,40 @@ export default function EmailAnalyzer() {
   const [imapLoading, setImapLoading] = useState(false);
   const [imapResults, setImapResults] = useState([]);
   const [imapError, setImapError] = useState(null);
+
+  // File Upload State
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadLoading, setUploadLoading] = useState(false);
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setUploadFile(file);
+    setUploadLoading(true);
+    setResult(null);
+    setError(null);
+    setScanProgress(0);
+
+    const progressInterval = setInterval(() => {
+      setScanProgress((prev) => {
+        if (prev >= 90) { clearInterval(progressInterval); return 90; }
+        return prev + Math.random() * 12;
+      });
+    }, 400);
+
+    try {
+      const data = await analyzeFile(file);
+      clearInterval(progressInterval);
+      setScanProgress(100);
+      setTimeout(() => setResult(data), 400);
+    } catch (err) {
+      clearInterval(progressInterval);
+      setScanProgress(0);
+      setError(err.response?.data?.detail || 'File scan failed. Is the backend running?');
+    } finally {
+      setUploadLoading(false);
+    }
+  };
 
   const handleLiveSync = async () => {
     if (!imapEmail || !imapPassword) {
@@ -158,6 +192,64 @@ export default function EmailAnalyzer() {
               ))}
             </div>
           )}
+        </GlassCard>
+
+        <div className="flex items-center justify-center my-6">
+          <div className="h-px bg-gray-800 w-full"></div>
+          <span className="px-4 text-xs font-semibold text-gray-500 uppercase tracking-widest">OR</span>
+          <div className="h-px bg-gray-800 w-full"></div>
+        </div>
+
+        {/* Direct Media Upload Section */}
+        <GlassCard className="mb-6" glow="purple">
+          <div className="flex items-center gap-2 mb-4">
+            <ImageIcon className="w-5 h-5" style={{ color: '#D946EF' }} />
+            <h2 className="text-sm font-semibold" style={{ fontFamily: 'Orbitron', color: '#E5E7EB' }}>
+              Direct Media Scan (Deepfake Test)
+            </h2>
+          </div>
+          <p className="text-xs mb-4" style={{ color: '#9CA3AF' }}>
+            Upload a video (.mp4) or image directly to test the new Deepfake AI Scanner.
+          </p>
+
+          <div className="flex items-center justify-between">
+            <div className="flex-1 mr-4">
+              <label className="text-[10px] uppercase tracking-wider mb-2 block" style={{ color: '#6B7280' }}>
+                Select Media File
+              </label>
+              <div className="relative">
+                <input
+                  type="file"
+                  accept="image/*,video/mp4"
+                  onChange={handleFileUpload}
+                  disabled={uploadLoading}
+                  className="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-800 file:text-fuchsia-400 hover:file:bg-gray-700 cursor-pointer"
+                />
+              </div>
+              {uploadFile && (
+                <p className="text-[10px] mt-2" style={{ color: '#A78BFA' }}>
+                  Selected: {uploadFile.name} ({(uploadFile.size / 1024 / 1024).toFixed(2)} MB)
+                </p>
+              )}
+            </div>
+
+            {uploadLoading && (
+              <div className="w-1/2">
+                <AnimatedProgress progress={scanProgress} label="Analyzing Media" color="#D946EF" />
+                <div className="mt-2 flex items-center gap-2">
+                  <motion.div
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: '#D946EF' }}
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                  />
+                  <span className="text-[10px] font-mono" style={{ color: '#6B7280' }}>
+                    Scanning pixels and audio tracks...
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
         </GlassCard>
 
         <div className="flex items-center justify-center my-6">

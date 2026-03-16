@@ -75,68 +75,86 @@ class DeepfakeAnalyzerAgent:
         )
 
     async def _reality_defender_scan(self, extracted: ExtractedContent) -> tuple[float, list[EvidenceItem]]:
-        """Scan media using Reality Defender API."""
-        settings = get_settings()
-        if not settings.reality_defender_api_key:
-            return 0.0, []
+        """Scan media using the local Deepfake Microservice (port 8001)."""
+        DEEPFAKE_MICROSERVICE_URL = "http://localhost:8001"
 
         try:
-            headers = {
-                "Authorization": f"Bearer {settings.reality_defender_api_key}",
-                "Content-Type": "application/json"
-            }
-
             # Determine media type and prepare request
-            media_url = extracted.metadata.get("media_url", "")
-            file_content = extracted.metadata.get("file_content", "")
+            media_content = extracted.metadata.get("file_content")
+            mime_type = extracted.metadata.get("content_type", "")
+            filename = extracted.metadata.get("filename", "upload.unknown")
 
-            if media_url:
-                payload = {"url": media_url}
-            elif file_content:
-                payload = {"file": file_content}
-            elif extracted.attachments:
-                # Use first media attachment info
-                payload = {"metadata": extracted.attachments[0]}
+            # Fallback to checking attachments if metadata file_content is empty
+            if not media_content and extracted.attachments:
+                for att in extracted.attachments:
+                    if att.get("content_type", "").startswith(("image/", "video/", "audio/")):
+                        media_content = att.get("content")  # Assuming content bytes are here
+                        mime_type = att.get("content_type", "")
+                        filename = att.get("filename", "attachment.unknown")
+                        break
+
+            if not media_content:
+                return 0.0, []
+
+            # Routing logic based on mime type
+            if mime_type.startswith("image/"):
+                endpoint = f"{DEEPFAKE_MICROSERVICE_URL}/analyze/image"
+            elif mime_type.startswith("audio/"):
+                endpoint = f"{DEEPFAKE_MICROSERVICE_URL}/analyze/audio"
+            elif mime_type.startswith("video/"):
+                endpoint = f"{DEEPFAKE_MICROSERVICE_URL}/analyze/video"
             else:
                 return 0.0, []
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{self.REALITY_DEFENDER_BASE_URL}/detect",
-                    headers=headers,
-                    json=payload
-                )
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                files = {"file": (filename, media_content, mime_type)}
+                response = await client.post(endpoint, files=files)
 
                 if response.status_code == 200:
                     data = response.json()
 
-                    # Parse Reality Defender response
-                    is_fake = data.get("is_fake", False)
-                    fake_probability = data.get("fake_probability", 0.0)
-                    detection_details = data.get("details", {})
+                    # Parse Microservice Response
+                    status_verdict = data.get("status", "AUTHENTIC")
+                    score_0_100 = data.get("score", 0.0)
+                    confidence_str = data.get("confidence", "LOW")
+                    models = data.get("models", [])
 
+                    fake_probability = score_0_100 / 100.0
                     evidence = []
-                    if is_fake or fake_probability > 0.5:
+
+                    if status_verdict in ["FAKE", "SUSPICIOUS"] or fake_probability > 0.5:
+                        model_details = ", ".join([f"{m['name']}: {m['score']}%" for m in models[:2]])
                         evidence.append(EvidenceItem(
-                            indicator="Reality Defender Detection",
-                            description=f"Deepfake probability: {fake_probability:.1%}. {detection_details.get('reason', '')}",
+                            indicator=f"Deepfake Microservice Detection ({confidence_str} CONFIDENCE)",
+                            description=f"Deepfake probability: {fake_probability:.1%}. Verdict: {status_verdict}. Models: {model_details}",
                             severity=BreadcrumbSeverity.RED if fake_probability > 0.7 else BreadcrumbSeverity.ORANGE
+                        ))
+                    else:
+                        evidence.append(EvidenceItem(
+                            indicator="Deepfake Microservice Scan (AUTHENTIC)",
+                            description=f"Scanned by Reality Defender. Verdict: {status_verdict} ({fake_probability:.1%} probability).",
+                            severity=BreadcrumbSeverity.GREEN
                         ))
 
                     return fake_probability, evidence
 
-                elif response.status_code == 429:
+                elif response.status_code == 422:
+                    error_detail = response.json().get("detail", "Unprocessable entity")
                     return 0.0, [EvidenceItem(
-                        indicator="API Rate Limit",
-                        description="Reality Defender scan limit reached (50 scans)",
+                        indicator="Deepfake Scan Inconclusive",
+                        description=f"{error_detail} Reality Defender Free Tier requires visible faces or clear speech to evaluate AI manipulation.",
                         severity=BreadcrumbSeverity.YELLOW
                     )]
-
-            return 0.0, []
+                else:
+                    return 0.0, [EvidenceItem(
+                        indicator="Microservice Error",
+                        description=f"Deepfake service returned {response.status_code}: {response.text[:100]}",
+                        severity=BreadcrumbSeverity.YELLOW
+                    )]
         except Exception as e:
             return 0.0, [EvidenceItem(
-                indicator="API Error",
-                description=f"Reality Defender API error: {str(e)[:100]}",
+                indicator="Microservice Connection Error",
+                description=f"Could not reach Deepfake Microservice at port 8001: {str(e)[:100]}",
                 severity=BreadcrumbSeverity.YELLOW
             )]
 

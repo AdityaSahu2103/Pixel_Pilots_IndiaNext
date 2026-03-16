@@ -74,3 +74,28 @@ async def analyze_text(request: TextScanRequest):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Text scan failed: {str(e)}")
+
+
+from fastapi import File, UploadFile
+@router.post("/analyze/file", response_model=ScanResponse)
+async def analyze_file(file: UploadFile = File(...)):
+    """Analyze direct media file uploads (for deepfakes or general analysis)."""
+    try:
+        content_bytes = await file.read()
+        scan_request = ScanRequest(
+            source_type=SourceType.FILE,
+            content="Binary content uploaded via API.",
+            metadata={
+                "file_content": content_bytes,
+                "content_type": file.content_type,
+                "filename": file.filename
+            }
+        )
+        result = await orchestrator.scan(scan_request)
+        return result
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"File scan failed: {str(e)}")
+    finally:
+        await file.close()
