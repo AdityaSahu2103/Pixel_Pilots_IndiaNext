@@ -1,0 +1,37 @@
+version: "3.9"
+
+services:
+  # ── Backend ────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../backend/.env
+    volumes:
+      - ../backend:/app
+      - ../shared:/shared
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # ── Frontend ───────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+  # ── Redis ──────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
