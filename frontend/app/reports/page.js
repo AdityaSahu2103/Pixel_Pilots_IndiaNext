@@ -298,7 +298,7 @@ export default function Reports() {
                                   <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
                                     <p className="text-xs text-red-400 font-semibold mb-2">⚠️ Evasions Detected!</p>
                                     <p className="text-xs text-gray-400">
-                                      The AI successfully blocked the original threat, but when hackers applied <strong>{selectedReport.adversarial.evasion_details[0]}</strong>, the AI failed to recognize it and let it through. You must harden the prompt injection models against this specific bypass technique.
+                                      The AI successfully blocked the original threat, but when hackers applied <strong>{selectedReport.adversarial.mutations?.filter(m => m.evasion_successful).map(m => m.mutation_type.replace(/_/g, ' ')).join(', ') || 'advanced mutation techniques'}</strong>, the AI failed to recognize it and let it through. You must harden the prompt injection models against this specific bypass technique.
                                     </p>
                                   </div>
                                 ) : (
