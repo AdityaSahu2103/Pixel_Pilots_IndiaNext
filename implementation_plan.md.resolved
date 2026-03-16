@@ -1,0 +1,296 @@
+# CyberShield AI — Multi-Agent Cyber Defense Platform
+
+## Problem Understanding
+
+Build a **smart cyber defense platform** that detects, analyzes, and explains emerging cyber threats using AI/ML. Threats: phishing, malicious URLs, deepfakes, prompt injection, anomalous behavior, AI-generated malicious content. The system must provide **explainability** (why something is flagged), **risk scoring**, and **actionable recommendations**.
+
+## Architecture Refinement & Feedback
+
+Your planned architecture is **strong** and covers all judging criteria. Here's my refined version with practical adjustments for the **2-hour constraint**:
+
+> [!IMPORTANT]
+> **Key refinements from your original plan:**
+> 1. **Google Safe Browsing API** for phishing URL detection (key confirmed ✅)
+> 2. **Reality Defender API** for deepfake detection with 50 scans (key confirmed ✅)
+> 3. **VirusTotal API** for malicious URL scanning (key confirmed ✅)
+> 4. **SafePrompt API** → replaced with local prompt injection detector using pattern matching + Groq LLM scoring
+> 5. **Simplify RAG** — use Groq LLM with structured context injection instead of full vector DB pipeline
+> 6. **Add email parsing via `email` stdlib** — handles all email metadata extraction natively
+> 7. **Adversarial testing** is a **bonus marks** goldmine (up to 10 marks) — input mutation + rescan
+
+### Final Architecture Flow
+
+```
+Input Sources (Email/Message/URL/File)
+        │
+        ▼
+┌─────────────────────────┐
+│   Orchestrator Agent    │  ← Central coordinator
+│   (FastAPI + async)     │
+└────────┬────────────────┘
+         │
+    ┌────┴────────────────────────────────┐
+    │  Content Extraction Agent           │
+    │  (Email parser, URL extractor,      │
+    │   file handler, text normalizer)    │
+    └────────┬────────────────────────────┘
+             │
+    ┌────────┴──── Parallel Detection Agents ────────┐
+    │                                                 │
+    │  ┌──────────────┐  ┌──────────────┐            │
+    │  │ Phishing     │  │ URL Scanner  │            │
+    │  │ Detector     │  │ (VirusTotal) │            │
+    │  └──────────────┘  └──────────────┘            │
+    │  ┌──────────────┐  ┌──────────────┐            │
+    │  │ Deepfake     │  │ Prompt Inj.  │            │
+    │  │ Analyzer     │  │ Detector     │            │
+    │  └──────────────┘  └──────────────┘            │
+    │  ┌──────────────┐                              │
+    │  │ Anomaly      │                              │
+    │  │ Detector     │                              │
+    │  └──────────────┘                              │
+    └────────┬───────────────────────────────────────┘
+             │
+    ┌────────┴────────────────────────────┐
+    │  Cross-Validation Agent             │
+    │  (Reduce false positives using      │
+    │   local ML model consensus)         │
+    └────────┬────────────────────────────┘
+             │
+    ┌────────┴────────────────────────────┐
+    │  LLM Explainer Agent (Groq)         │
+    │  + Context injection from threat    │
+    │    intelligence (SERP API live)     │
+    └────────┬────────────────────────────┘
+             │
+    ┌────────┴────────────────────────────┐
+    │  Visual Breadcrumb Generator        │
+    │  (Evidence highlighting, risk       │
+    │   color coding, diff view)          │
+    └────────┬────────────────────────────┘
+             │
+    ┌────────┴────────────────────────────┐
+    │  Adversarial Testing Agent          │
+    │  (Input mutation + rescan for       │
+    │   robustness — BONUS MARKS)         │
+    └────────────────────────────────────┘
+```
+
+## Proposed Changes
+
+### Directory Structure
+
+```
+IndiaNext_Pixel_Pilots/
+├── backend/
+│   ├── main.py                     # FastAPI app entry point
+│   ├── config.py                   # API keys, settings
+│   ├── requirements.txt            # All dependencies
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py         # Central coordinator agent
+│   │   ├── content_extractor.py    # Email/URL/file content extraction
+│   │   ├── phishing_detector.py    # Phishing detection agent
+│   │   ├── url_scanner.py          # URL scanning via VirusTotal
+│   │   ├── deepfake_analyzer.py    # Deepfake metadata analysis
+│   │   ├── prompt_injection.py     # Prompt injection detection
+│   │   ├── anomaly_detector.py     # User behavior anomaly detection
+│   │   └── cross_validator.py      # False positive reduction agent
+│   ├── llm/
+│   │   ├── __init__.py
+│   │   ├── explainer.py            # Groq LLM explainer agent
+│   │   └── context_enricher.py     # SERP API + threat intel context
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── schemas.py              # Pydantic models for all I/O
+│   │   └── risk_calculator.py      # Composite risk scoring
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── breadcrumb_generator.py # Visual evidence + breadcrumbs
+│   │   └── adversarial_tester.py   # Input mutation + robustness
+│   └── routers/
+│       ├── __init__.py
+│       ├── analyze.py              # POST /api/analyze — main scan
+│       ├── health.py               # GET /api/health
+│       └── reports.py              # GET /api/reports — scan results
+├── frontend/                       # (Placeholder for PWA)
+│   └── .gitkeep
+├── docs/
+│   └── architecture.md
+├── .gitignore
+├── README.md
+└── venv/                           # Existing
+```
+
+---
+
+### Core Infrastructure
+
+#### [NEW] [config.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/config.py)
+- Environment-based config using `pydantic-settings`
+- API keys: `VIRUSTOTAL_API_KEY`, `GROQ_API_KEY`, `SERP_API_KEY`
+- Model settings, thresholds, feature flags
+
+#### [NEW] [main.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/main.py)
+- FastAPI application with CORS middleware (for future frontend)
+- Include all routers
+- Startup/shutdown events for initializing agents
+
+#### [NEW] [requirements.txt](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/requirements.txt)
+- `fastapi`, `uvicorn`, `pydantic`, `pydantic-settings`
+- `httpx` (async HTTP), `python-multipart` (file uploads)
+- `groq` (Groq SDK), `scikit-learn` (anomaly ML), `beautifulsoup4` (HTML parsing)
+- `python-jose` (for future auth), `email-validator`
+
+---
+
+### Data Models (Schemas)
+
+#### [NEW] [schemas.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/models/schemas.py)
+- `ScanRequest` — input with source_type, content, metadata
+- `ThreatDetection` — individual agent result with threat_type, confidence, evidence list
+- `RiskScore` — composite risk with category breakdown
+- `Breadcrumb` — visual evidence item with position, severity, description
+- `ExplainerResult` — LLM explanation with reasoning chain
+- `ScanResponse` — full response with all detections, explanations, recommendations
+- `AdversarialResult` — mutation test results
+
+---
+
+### Agents
+
+#### [NEW] [orchestrator.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/orchestrator.py)
+- Accepts `ScanRequest`, dispatches to content extractor
+- Runs all relevant detection agents **in parallel** using `asyncio.gather`
+- Pipes results through cross-validator, then LLM explainer
+- Returns complete `ScanResponse`
+
+#### [NEW] [content_extractor.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/content_extractor.py)
+- Parse raw email (`.eml`) using Python `email` stdlib
+- Extract: sender, subject, body (plain + HTML), URLs, attachments metadata
+- For messages: extract text + embedded URLs
+- For URLs: fetch page content, extract metadata
+- Output: `ExtractedContent` with all parsed fields
+
+#### [NEW] [phishing_detector.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/phishing_detector.py)
+- **Google Safe Browsing API** integration for URL-level phishing checks
+- Header analysis: SPF, DKIM, DMARC checks
+- Urgency/social engineering pattern detection (NLP keyword scoring)
+- Sender domain reputation check
+- Link-text mismatch detection
+- Outputs `ThreatDetection` with evidence points
+
+#### [NEW] [url_scanner.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/url_scanner.py)
+- VirusTotal API v3 integration (`/urls` endpoint)
+- URL reputation scoring from multiple engines
+- Domain age check, redirect chain analysis
+- Suspicious pattern detection (homograph attacks, IP-based URLs)
+
+#### [NEW] [deepfake_analyzer.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/deepfake_analyzer.py)
+- **Reality Defender API** integration for deepfake detection (50 scans available)
+- Metadata analysis of audio/video files as fallback
+- Returns deepfake probability score + evidence from Reality Defender
+- Outputs `ThreatDetection` with API-backed confidence
+
+#### [NEW] [prompt_injection.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/prompt_injection.py)
+- Pattern-based detection (known injection patterns like "ignore previous", "system:", etc.)
+- Structural analysis (unusual formatting, encoding tricks)
+- LLM-based scoring via Groq for semantic injection detection
+
+#### [NEW] [anomaly_detector.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/agents/anomaly_detector.py)
+- IsolationForest model for user behavior scoring
+- Feature extraction from login patterns (time, location, frequency)
+- Statistical deviation scoring
+
+#### [NEW] [cross_validator.py](file:///c:/Users/HP/Desktop/IndiaNext_Pilot/backend/agents/cross_validator.py)
+- Takes all agent results, applies consensus scoring
+- Reduces false positives via multi-signal correlation
+- Adjusts confidence scores based on agreement/disagreement
+
+---
+
+### LLM Layer
+
+#### [NEW] [explainer.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/llm/explainer.py)
+- Groq API with `llama-3.3-70b-versatile`
+- Structured prompting with detection results + enriched context
+- Generates: human-readable explanation, reasoning chain, confidence justification
+- Evidence-based explanation format with citations
+
+#### [NEW] [context_enricher.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/llm/context_enricher.py)
+- SERP API integration for live threat intelligence
+- Known threat database context (curated patterns)
+- Enriches detections with real-world context before LLM explaining
+
+---
+
+### Services
+
+#### [NEW] [breadcrumb_generator.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/services/breadcrumb_generator.py)
+- Generates visual breadcrumb data for frontend rendering
+- Color-coded risk indicators (red/yellow/green)
+- Position-aware evidence highlighting
+- Diff-style consistency markers
+
+#### [NEW] [adversarial_tester.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/services/adversarial_tester.py)
+- Input mutation strategies: character substitution, unicode tricks, content rephrasing
+- Re-scans mutated inputs through detection pipeline
+- Reports robustness score + evasion attempts caught
+
+---
+
+### API Endpoints
+
+#### [NEW] [analyze.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/routers/analyze.py)
+- `POST /api/analyze` — main scan endpoint (accepts JSON or file upload)
+- `POST /api/analyze/email` — email-specific scan
+- `POST /api/analyze/url` — URL-specific scan
+- `POST /api/analyze/text` — text/message scan
+
+#### [NEW] [health.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/routers/health.py)
+- `GET /api/health` — system health + agent status
+
+#### [NEW] [reports.py](file:///c:/Users/HP/Desktop/IndiaNext_Pixel_Pilots/backend/routers/reports.py)
+- `GET /api/reports/{scan_id}` — fetch scan report
+- `POST /api/reports/{scan_id}/adversarial` — trigger adversarial test
+
+---
+
+## API Keys Required
+
+> [!WARNING]
+> **Set these API keys as environment variables (placeholders in `.env`):**
+> - `VIRUSTOTAL_API_KEY` ✅ confirmed
+> - `GOOGLE_SAFE_BROWSING_API_KEY` ✅ confirmed
+> - `REALITY_DEFENDER_API_KEY` ✅ confirmed (50 scans)
+> - `GROQ_API_KEY` — Free at [console.groq.com](https://console.groq.com)
+> - `SERP_API_KEY` — Free tier at [serpapi.com](https://serpapi.com) (optional)
+
+## Why This Wins
+
+| Judging Criteria (100 marks) | How We Score |
+|---|---|
+| **Problem Relevance (15)** | Multi-threat real-world platform covering all 6 threat areas |
+| **Technical Complexity (15)** | 8+ modules, multi-agent async architecture, ML + API + LLM pipeline |
+| **AI/ML Effectiveness (15)** | Multiple detection methods: NLP, IsolationForest, regex + API + LLM reasoning |
+| **Explainable AI (15)** | LLM-powered explanations with evidence chain, visual breadcrumbs, risk breakdown |
+| **Cybersecurity Depth (15)** | SPF/DKIM/DMARC checks, VirusTotal integration, injection patterns, anomaly ML |
+| **Innovation (10)** | Multi-agent orchestration, adversarial robustness testing, live threat intel |
+| **Prototype Quality (10)** | Clean FastAPI with OpenAPI docs, structured JSON responses for PWA frontend |
+| **Presentation (5)** | Architecture diagram, live demo-ready APIs |
+| **BONUS (up to 10)** | Adversarial testing, privacy-aware design, real-time scoring |
+
+## Verification Plan
+
+### Automated Tests
+1. **Run the server**: `.\venv\Scripts\python.exe -m uvicorn backend.main:app --reload --port 8000`
+2. **Health check**: `curl http://localhost:8000/api/health`
+3. **Test scan endpoint**: Send a phishing email sample via POST to `/api/analyze`
+4. **Test URL scan**: POST a suspicious URL to `/api/analyze/url`
+5. **Test prompt injection**: POST injection text to `/api/analyze/text`
+6. **Verify OpenAPI docs**: Navigate to `http://localhost:8000/docs` in browser
+
+### Manual Verification
+- Verify all API responses match Pydantic schemas
+- Verify parallel agent execution completes within reasonable time
+- Test with real phishing email samples from public datasets
