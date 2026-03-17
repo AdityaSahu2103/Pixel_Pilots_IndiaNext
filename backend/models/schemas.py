@@ -200,6 +200,7 @@ class ScanResponse(BaseModel):
     breadcrumbs: list[Breadcrumb] = Field(default_factory=list)
     adversarial: Optional[AdversarialResult] = None
     processing_time_ms: float = 0.0
+    attachments: list[dict] = Field(default_factory=list, description="Metadata of attachments scanned")
 
 
 class HealthResponse(BaseModel):

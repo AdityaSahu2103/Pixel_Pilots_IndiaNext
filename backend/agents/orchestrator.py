@@ -83,7 +83,8 @@ class OrchestratorAgent:
             
             for det in validated:
                 threat_key = det.threat_type.value
-                if threat_key in threat_scores:
+                # Do not let text-only LLM override multi-modal or behavioral threat scores
+                if threat_key in threat_scores and threat_key not in ["deepfake", "anomaly"]:
                     new_conf = threat_scores[threat_key]
                     det.confidence = round(new_conf, 4)
                     
@@ -134,7 +135,8 @@ class OrchestratorAgent:
             explanation=explanation,
             breadcrumbs=breadcrumbs,
             adversarial=adversarial,
-            processing_time_ms=round(processing_time, 2)
+            processing_time_ms=round(processing_time, 2),
+            attachments=[{"filename": a.get("filename"), "content_type": a.get("content_type"), "size": a.get("size")} for a in extracted.attachments]
         )
 
     async def _run_detections(self, extracted: ExtractedContent) -> list[ThreatDetection]:
