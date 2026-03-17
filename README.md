@@ -1,4 +1,4 @@
-# CyberShield AI 🛡️
+# Vajra AI 🛡️
 
 > **Multi-Agent Cyber Defense Platform** — Detects, analyzes, and explains emerging cyber threats using AI/ML techniques.
 
