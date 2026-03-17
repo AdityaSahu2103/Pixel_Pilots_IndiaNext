@@ -3,7 +3,8 @@
 > **Multi-Agent Cyber Defense Platform** — Detects, analyzes, and explains emerging cyber threats using AI/ML techniques.
 
 Built for **IndiaNext Hackathon 2026** by Team Pixel Pilots.
-
+**Website Deploy Link** https://vajra-kappa.vercel.app
+**HeatMap Deploy Link** https://heat-map-cybersecuirty.streamlit.app
 ## 🎯 What It Does
 
 CyberShield AI is an intelligent cybersecurity platform that processes emails, URLs, messages, and files to detect multiple threat types simultaneously:
